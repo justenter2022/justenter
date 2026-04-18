@@ -17,7 +17,7 @@
         document.getElementById('labelImg').src = '/api/v1/topsellers/labels/' + path;
         document.getElementById('labelImg').onload = function() {
             window.print();
-            window.close();
+            setTimeout(function() { window.close(); }, 3000);
         };
     }
 </script>
