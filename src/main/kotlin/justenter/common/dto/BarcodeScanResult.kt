@@ -5,7 +5,12 @@ data class BarcodeScanResult(
     val errorType: BarcodeScanErrorType? = null,
     val message: String,
     val invoiceNo: String? = null,
-    val labelImagePath: String? = null
+    val labelImagePath: String? = null,
+    val bundleGroup: String? = null,
+    val bundleTotal: Int = 0,
+    val bundleScanned: Int = 0,
+    val bundleComplete: Boolean = false,
+    val bundleSeq: Int? = null
 )
 
 enum class BarcodeScanErrorType {

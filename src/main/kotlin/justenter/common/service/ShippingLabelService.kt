@@ -103,7 +103,7 @@ class ShippingLabelService {
             // [2] 바코드 영역
             val clsfCdBarcode = generateBarcodeImage(clsfcd, 140, 55, Code128Type.CODE128A, false)
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-            g2d.drawImage(clsfCdBarcode, 0, 30, 140, 55, null)
+            g2d.drawImage(clsfCdBarcode, 0, 32, 140, 55, null)
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
 
             val attributes = mapOf(
@@ -115,8 +115,8 @@ class ShippingLabelService {
             g2d.font = Font(attributes)
             g2d.drawString(clsfcd.substring(0, 1), 140, 86)
 
-            g2d.font = Font("SansSerif", Font.BOLD, 58)
-            g2d.drawString(clsfcd.substring(1), 167, 86)
+            g2d.font = Font("SansSerif", Font.BOLD, 68)
+            g2d.drawString(clsfcd.substring(1), 174, 87)
 
             g2d.font = Font("SansSerif", Font.BOLD, 34)
             g2d.drawString("-$subclsfcd", 311, 82)
@@ -125,26 +125,26 @@ class ShippingLabelService {
 
             // [3] 받는분 영역
             g2d.font = font12
-            g2d.drawString(receiverName, 24, 110)
-            g2d.drawString(receiverAddr1, 24, 128)
-            g2d.drawString(receiverAddr2, 24, 140)
+            g2d.drawString(receiverName, 22, 111)
+            g2d.drawString(receiverAddr1, 22, 135)
+            g2d.drawString(receiverAddr2, 22, 140)
             val invoiceNoBarcode1 = generateBarcodeImage(invoiceNo, 155, 20, Code128Type.CODE128C, false)
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-            g2d.drawImage(invoiceNoBarcode1, 304, 93, 155, 20, null)
+            g2d.drawImage(invoiceNoBarcode1, 304, 94, 155, 20, null)
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
 
             g2d.font = font23
-            g2d.drawString(clsfaddr, 24, 162)
+            g2d.drawString(clsfaddr, 22, 162)
 
             // [4] 보내는분
             g2d.font = font9
-            g2d.drawString(sender, 24, 176)
-            g2d.drawString(phoneNumber, 164, 176)
+            g2d.drawString(sender, 22, 178)
+            g2d.drawString(phoneNumber, 160, 178)
             g2d.font = font10
-            g2d.drawString("국소 1", 268, 176)
-            g2d.drawString("0", 400, 176)
-            g2d.drawString("신용", 450, 176)
-            g2d.drawString(address1, 24, 190)
+            g2d.drawString("국소 1", 268, 178)
+            g2d.drawString("0", 400, 178)
+            g2d.drawString("신용", 450, 178)
+            g2d.drawString(address1, 22, 192)
 
             // [5] 상품정보 영역
             g2d.font = font11
@@ -160,7 +160,7 @@ class ShippingLabelService {
             // [7] 하단 운송장바코드
             val invoiceNoBarcode2 = generateBarcodeImage(invoiceNo, 150, 33, Code128Type.CODE128C, true, 10)
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-            g2d.drawImage(invoiceNoBarcode2, 318, 316, 162, 33 + (10 + 5), null)
+            g2d.drawImage(invoiceNoBarcode2, 318, 324, 162, 33 + (10 + 5), null)
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
 
         } finally {

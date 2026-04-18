@@ -20,8 +20,8 @@ class TopSellersOutOrd(
     @Column(name = "hawb_no", length = 100)
     var hawbNo: String? = null,
 
-    @Column(name = "cj_no", length = 100)
-    var cjNo: String? = null,
+    @Column(name = "invoice_no", length = 100)
+    var invoiceNo: String? = null,
 
     @Column(name = "cust_nm", length = 255)
     var custNm: String? = null,
@@ -47,14 +47,24 @@ class TopSellersOutOrd(
     @Column(name = "product_type", length = 255)
     var productType: String? = null,
 
-    @Column(name = "brand", length = 255)
-    var brand: String? = null,
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "brand_id")
+    var brand: Brand? = null,
 
     @Column(name = "qty")
     var qty: Int? = null,
 
     @Column(name = "qty_unit", length = 20)
     var qtyUnit: String? = null,
+
+    @Column(name = "bundle_group", length = 100)
+    var bundleGroup: String? = null,
+
+    @Column(name = "scanned", nullable = false)
+    var scanned: Boolean = false,
+
+    @Column(name = "bundle_seq")
+    var bundleSeq: Int? = null,
 
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: LocalDateTime = LocalDateTime.now(),
