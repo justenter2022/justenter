@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        @page { margin: 0; }
+        * { margin: 0; padding: 0; }
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        img { width: 100%; height: 100%; display: block; object-fit: fill; }
+    </style>
+</head>
+<body>
+<img id="labelImg" />
+<script>
+    var params = new URLSearchParams(window.location.search);
+    var path = params.get('path');
+    if (path) {
+        document.getElementById('labelImg').src = '/api/v1/topsellers/labels/' + path;
+        document.getElementById('labelImg').onload = function() {
+            window.print();
+        };
+    }
+</script>
+</body>
+</html>

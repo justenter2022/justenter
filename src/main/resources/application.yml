@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: cj-delivery-api
+  profiles:
+    active: dev
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    cache: false
+    mode: HTML
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+server:
+  port: 8080
+
+cj:
+  delivery:
+    timeout: 10000
+
+app:
+  invoice:
+    base-path: ./invoice
+  sender:
+    name: "저스트엔터"
+    tel: "010-3381-7134"
+    address: "서울 금천구 디지털로 178"
+    detail-address: "B동 302호"
+    zip-code: "08513"
+
+# Swagger UI 설정
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: alpha
+    tags-sorter: alpha
+  api-docs:
+    path: /api-docs
+    enabled: true
+
+# Logging
+logging:
+  level:
+    justenter.cjdeliveryapi: DEBUG
+    org.springframework.web: INFO
+    jdbc.sqlonly: DEBUG
+    jdbc.sqltiming: INFO
+    jdbc.resultsettable: INFO
+    jdbc.audit: OFF
+    jdbc.resultset: OFF
+    jdbc.connection: OFF

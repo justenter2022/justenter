@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>바코드 스캔 - 탑셀러 출고</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px;
+        }
+        .container { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); padding: 40px; max-width: 500px; width: 100%; }
+        h1 { text-align: center; color: #333; margin-bottom: 10px; font-size: 28px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 14px; }
+        .scan-area { display: flex; flex-direction: column; gap: 15px; }
+        input[type="text"] { width: 100%; padding: 15px 20px; font-size: 18px; border: 2px solid #e0e0e0; border-radius: 10px; outline: none; transition: all 0.3s; }
+        input[type="text"]:focus { border-color: #667eea; box-shadow: 0 0 0 4px rgba(102,126,234,0.1); }
+        button { width: 100%; padding: 15px; font-size: 18px; font-weight: bold; color: white; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; border-radius: 10px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102,126,234,0.3); }
+        button:active { transform: translateY(0); }
+        button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .result { margin-top: 30px; padding: 20px; border-radius: 10px; display: none; }
+        .result.success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .result.error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .result-title { font-weight: bold; margin-bottom: 10px; font-size: 16px; }
+        .loader { display: none; text-align: center; margin-top: 20px; }
+        .loader.active { display: block; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>바코드 스캔</h1>
+        <p class="subtitle">바코드를 스캔하거나 주문번호를 입력하세요</p>
+
+        <div class="scan-area">
+            <input type="text" id="barcodeInput" placeholder="바코드 스캔 또는 주문번호 입력" autocomplete="off" autofocus />
+            <button id="submitBtn">처리</button>
+        </div>
+
+        <div class="loader" id="loader">
+            <div class="spinner"></div>
+        </div>
+
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        const barcodeInput = document.getElementById('barcodeInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const loader = document.getElementById('loader');
+        const result = document.getElementById('result');
+
+        barcodeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitBtn.click();
+            }
+        });
+
+        submitBtn.addEventListener('click', async () => {
+            const barcodeValue = barcodeInput.value.trim();
+            if (!barcodeValue) {
+                alert('바코드 값을 입력해주세요.');
+                barcodeInput.focus();
+                return;
+            }
+
+            try {
+                submitBtn.disabled = true;
+                loader.classList.add('active');
+                result.style.display = 'none';
+
+                const response = await fetch('/api/v1/topsellers/scan/' + encodeURIComponent(barcodeValue), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.data && data.data.labelImagePath) {
+                    showResult('success', '운송장 생성 완료 - 운송장번호: ' + data.data.invoiceNo);
+                    // 인쇄 팝업 열기
+                    var printUrl = '/topsellers/label-print-view?path=' + encodeURIComponent(data.data.labelImagePath);
+                    window.open(printUrl, '_blank', 'width=800,height=600');
+                } else {
+                    alert(data.message || '처리에 실패했습니다.');
+                    showResult('error', data.message || '처리에 실패했습니다.');
+                }
+            } catch (error) {
+                alert('오류가 발생했습니다: ' + error.message);
+                showResult('error', '오류가 발생했습니다: ' + error.message);
+            } finally {
+                loader.classList.remove('active');
+                submitBtn.disabled = false;
+                barcodeInput.value = '';
+                barcodeInput.focus();
+            }
+        });
+
+        function showResult(type, message) {
+            result.className = 'result ' + type;
+            result.innerHTML = '<div class="result-title">' + (type === 'success' ? 'Success' : 'Error') + '</div><div>' + message + '</div>';
+            result.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
