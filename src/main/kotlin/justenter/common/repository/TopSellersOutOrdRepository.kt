@@ -12,4 +12,6 @@ interface TopSellersOutOrdRepository : JpaRepository<TopSellersOutOrd, Long> {
 
     @Query("SELECT COALESCE(MAX(t.bundleSeq), 0) FROM TopSellersOutOrd t WHERE t.scanned = true AND t.invoiceNo IS NULL")
     fun findMaxActiveBundleSeq(): Int
+
+    fun findByInvoiceNoIsNull(): List<TopSellersOutOrd>
 }

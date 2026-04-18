@@ -5,6 +5,7 @@ import justenter.cjdeliveryapi.service.CjBookingService
 import justenter.cjdeliveryapi.service.CjInvoiceService
 import justenter.common.dto.BarcodeScanErrorType
 import justenter.common.dto.BarcodeScanResult
+import justenter.common.dto.ExcelUploadResult
 import justenter.common.entity.Brand
 import justenter.common.entity.TopSellersOutOrd
 import justenter.common.repository.BrandRepository
@@ -41,7 +42,7 @@ class TopSellersOutOrdService(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @Transactional
-    fun uploadExcel(file: MultipartFile): Int {
+    fun uploadExcel(file: MultipartFile): ExcelUploadResult {
         val workbook = WorkbookFactory.create(file.inputStream)
         val sheet = workbook.getSheetAt(0)
 
@@ -96,7 +97,26 @@ class TopSellersOutOrdService(
             logger.info("탑셀러 엑셀 업로드 완료: ${orders.size}건 저장")
         }
 
-        return orders.size
+        // 오늘 업로드한 합포장 통계
+        val todayBundleMap = orders.groupBy { it.bundleGroup }
+        val todayBundleGroups = todayBundleMap.count { it.value.size > 1 }
+        val todayBundleItems = todayBundleMap.filter { it.value.size > 1 }.values.sumOf { it.size }
+
+        // 기존 잔여 합포장 (invoiceNo 없는 것 중 오늘 업로드 제외)
+        val todayOrderIds = orders.map { it.id }.toSet()
+        val remaining = topSellersOutOrdRepository.findByInvoiceNoIsNull()
+            .filter { it.id !in todayOrderIds }
+        val remainingBundleMap = remaining.groupBy { it.bundleGroup }
+        val remainingBundleGroups = remainingBundleMap.count { it.value.size > 1 }
+        val remainingBundleItems = remainingBundleMap.filter { it.value.size > 1 }.values.sumOf { it.size }
+
+        return ExcelUploadResult(
+            savedCount = orders.size,
+            todayBundleGroups = todayBundleGroups,
+            todayBundleItems = todayBundleItems,
+            remainingBundleGroups = remainingBundleGroups,
+            remainingBundleItems = remainingBundleItems
+        )
     }
 
     @Transactional
@@ -343,6 +363,49 @@ class TopSellersOutOrdService(
             bundleComplete = true,
             bundleSeq = bundleSeq
         )
+    }
+
+    fun generateFeedbackExcel(): String {
+        val unprocessed = topSellersOutOrdRepository.findByInvoiceNoIsNull()
+
+        val now = LocalDate.now()
+        val year = now.format(DateTimeFormatter.ofPattern("yyyy"))
+        val month = now.format(DateTimeFormatter.ofPattern("MM"))
+        val day = now.format(DateTimeFormatter.ofPattern("dd"))
+
+        val dirPath = Paths.get("src/main/resources/feedback", year, month, day)
+        Files.createDirectories(dirPath)
+
+        val fileName = "feedback_${year}${month}${day}.xlsx"
+        val filePath = dirPath.resolve(fileName)
+
+        val workbook = org.apache.poi.xssf.usermodel.XSSFWorkbook()
+        val sheet = workbook.createSheet("미출력 주문")
+
+        // 헤더
+        val headerRow = sheet.createRow(0)
+        headerRow.createCell(0).setCellValue("NO")
+        headerRow.createCell(1).setCellValue("고객명")
+        headerRow.createCell(2).setCellValue("주소")
+        headerRow.createCell(3).setCellValue("전화번호")
+
+        // 데이터
+        for ((idx, order) in unprocessed.withIndex()) {
+            val row = sheet.createRow(idx + 1)
+            row.createCell(0).setCellValue(order.no ?: "")
+            row.createCell(1).setCellValue(order.custNm ?: "")
+            row.createCell(2).setCellValue(order.custAddress ?: "")
+            row.createCell(3).setCellValue(order.custTelNo ?: "")
+        }
+
+        // 컬럼 너비 자동 조정
+        for (i in 0..3) sheet.autoSizeColumn(i)
+
+        Files.newOutputStream(filePath).use { workbook.write(it) }
+        workbook.close()
+
+        logger.info("피드백 엑셀 생성 완료: $filePath (${unprocessed.size}건)")
+        return filePath.toString()
     }
 
     /**

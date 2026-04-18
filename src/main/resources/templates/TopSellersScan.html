@@ -21,9 +21,12 @@
         button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102,126,234,0.3); }
         button:active { transform: translateY(0); }
         button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .btn-complete { background: linear-gradient(135deg, #28a745 0%, #218838 100%); margin-top: 15px; }
+        .btn-complete:hover { box-shadow: 0 10px 20px rgba(40,167,69,0.3); }
         .result { margin-top: 30px; padding: 20px; border-radius: 10px; display: none; }
         .result.success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
         .result.error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .result.waiting { background: #fff3cd; border: 1px solid #ffc107; color: #856404; }
         .result-title { font-weight: bold; margin-bottom: 10px; font-size: 16px; }
         .loader { display: none; text-align: center; margin-top: 20px; }
         .loader.active { display: block; }
@@ -39,6 +42,7 @@
         <div class="scan-area">
             <input type="text" id="barcodeInput" placeholder="바코드 스캔 또는 주문번호 입력" autocomplete="off" autofocus />
             <button id="submitBtn">처리</button>
+            <button id="completeBtn" class="btn-complete">완료 (미출력 주문 다운로드)</button>
         </div>
 
         <div class="loader" id="loader">
@@ -82,13 +86,17 @@
                 const data = await response.json();
 
                 if (data.success && data.data && data.data.labelImagePath) {
+                    // 송장 발급 완료 - 라벨 출력
                     showResult('success', '운송장 생성 완료 - 운송장번호: ' + data.data.invoiceNo);
-                    // 인쇄 팝업 열기
                     var printUrl = '/topsellers/label-print-view?path=' + encodeURIComponent(data.data.labelImagePath);
                     window.open(printUrl, '_blank', 'width=800,height=600');
-                } else {
-                    alert(data.message || '처리에 실패했습니다.');
+                } else if (data.success && data.data && data.data.bundleComplete === false) {
+                    // 합포장 대기 상태
+                    showResult('waiting', data.message);
+                } else if (!data.success) {
                     showResult('error', data.message || '처리에 실패했습니다.');
+                } else {
+                    showResult('success', data.message);
                 }
             } catch (error) {
                 alert('오류가 발생했습니다: ' + error.message);
@@ -101,9 +109,33 @@
             }
         });
 
+        document.getElementById('completeBtn').addEventListener('click', async () => {
+            if (!confirm('오늘 스캔을 완료하시겠습니까?\n미출력 주문 엑셀 파일이 다운로드됩니다.')) return;
+
+            try {
+                const response = await fetch('/api/v1/topsellers/complete', { method: 'POST' });
+                if (!response.ok) throw new Error('서버 오류');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'feedback.xlsx';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+                showResult('success', '미출력 주문 엑셀 다운로드 완료');
+            } catch (error) {
+                showResult('error', '완료 처리 중 오류: ' + error.message);
+            }
+        });
+
         function showResult(type, message) {
             result.className = 'result ' + type;
-            result.innerHTML = '<div class="result-title">' + (type === 'success' ? 'Success' : 'Error') + '</div><div>' + message + '</div>';
+            var title = type === 'success' ? 'Success' : type === 'waiting' ? '합포장 대기' : 'Error';
+            result.innerHTML = '<div class="result-title">' + title + '</div><div>' + message + '</div>';
             result.style.display = 'block';
         }
     </script>

@@ -96,7 +96,20 @@
                 result.style.display = 'none';
                 const response = await fetch('/api/v1/topsellers/upload', { method: 'POST', body: formData });
                 const data = await response.json();
-                showResult(data.success ? 'success' : 'error', data.message);
+                if (data.success && data.data) {
+                    var msg = data.message;
+                    var d = data.data;
+                    if (d.todayBundleGroups > 0 || d.remainingBundleGroups > 0) {
+                        msg += '<br><br><b>합포장 현황</b>';
+                        msg += '<br>- 금일 업로드: 합포장 ' + d.todayBundleGroups + '건 (' + d.todayBundleItems + '개 주문)';
+                        if (d.remainingBundleGroups > 0) {
+                            msg += '<br>- 기존 잔여: 합포장 ' + d.remainingBundleGroups + '건 (' + d.remainingBundleItems + '개 주문)';
+                        }
+                    }
+                    showResult('success', msg);
+                } else {
+                    showResult(data.success ? 'success' : 'error', data.message);
+                }
             } catch (error) {
                 showResult('error', '업로드 중 오류가 발생했습니다: ' + error.message);
             } finally {

@@ -7,6 +7,7 @@ import justenter.common.dto.BarcodeScanResult
 import justenter.common.service.TopSellersOutOrdService
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.io.FileSystemResource
+import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Controller
@@ -65,12 +66,19 @@ class TopSellersOutOrdController(
             return ApiResponse(success = false, message = "엑셀 파일(.xlsx, .xls)만 업로드 가능합니다.")
         }
 
-        val savedCount = topSellersOutOrdService.uploadExcel(file)
+        val result = topSellersOutOrdService.uploadExcel(file)
 
         return ApiResponse(
             success = true,
-            message = "엑셀 업로드 완료: ${savedCount}건 저장",
-            data = mapOf("savedCount" to savedCount, "fileName" to originalFilename)
+            message = "엑셀 업로드 완료: ${result.savedCount}건 저장",
+            data = mapOf(
+                "savedCount" to result.savedCount,
+                "fileName" to originalFilename,
+                "todayBundleGroups" to result.todayBundleGroups,
+                "todayBundleItems" to result.todayBundleItems,
+                "remainingBundleGroups" to result.remainingBundleGroups,
+                "remainingBundleItems" to result.remainingBundleItems
+            )
         )
     }
 
@@ -86,6 +94,18 @@ class TopSellersOutOrdController(
             message = result.message,
             data = result
         )
+    }
+
+    @Operation(summary = "완료 - 미출력 주문 피드백 엑셀 다운로드", description = "송장 미출력 주문을 엑셀 파일로 생성하여 다운로드합니다.")
+    @PostMapping("/complete")
+    fun complete(): ResponseEntity<FileSystemResource> {
+        val filePath = topSellersOutOrdService.generateFeedbackExcel()
+        val resource = FileSystemResource(filePath)
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"${resource.filename}\"")
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .body(resource)
     }
 
     @Operation(summary = "라벨 이미지 조회", description = "저장된 라벨 이미지를 조회합니다.")
