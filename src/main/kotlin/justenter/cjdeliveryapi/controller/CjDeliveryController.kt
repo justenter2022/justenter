@@ -16,6 +16,7 @@ import justenter.cjdeliveryapi.service.CjBookingService
 import justenter.cjdeliveryapi.service.CjDeliveryService
 import justenter.cjdeliveryapi.service.CjInvoiceService
 import justenter.cjdeliveryapi.service.CjTokenService
+import justenter.common.dto.GoodsItem
 import justenter.common.service.ShippingLabelService
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -152,9 +153,7 @@ class CjDeliveryController(
             rcvrZipNo = rcvrZipNo,
             rcvrAddr = rcvrAddr,
             rcvrDetailAddr = rcvrDetailAddr,
-            gdsNm = gdsNm,
-            gdsQty = gdsQty,
-            gdsAmt = gdsAmt
+            goods = listOf(GoodsItem(productType = gdsNm, qty = gdsQty, amount = gdsAmt))
         )
         return ApiResponse(
             success = response.resultCd == "S",

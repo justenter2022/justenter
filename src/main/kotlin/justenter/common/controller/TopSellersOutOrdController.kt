@@ -72,7 +72,10 @@ class TopSellersOutOrdController(
             success = true,
             message = "엑셀 업로드 완료: ${result.savedCount}건 저장",
             data = mapOf(
+                "totalCount" to result.totalCount,
                 "savedCount" to result.savedCount,
+                "skippedCount" to result.skippedCount,
+                "validationErrors" to result.validationErrors,
                 "fileName" to originalFilename,
                 "todayBundleGroups" to result.todayBundleGroups,
                 "todayBundleItems" to result.todayBundleItems,

@@ -4,6 +4,7 @@ import justenter.cjdeliveryapi.client.CjApiClient
 import justenter.cjdeliveryapi.dto.request.BookingGoodsItem
 import justenter.cjdeliveryapi.dto.request.DeliveryBookingRequest
 import justenter.cjdeliveryapi.dto.response.DeliveryBookingResponse
+import justenter.common.dto.GoodsItem
 import justenter.config.CjDeliveryConfig
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -37,9 +38,7 @@ class CjBookingService(
         rcvrZipNo: String,
         rcvrAddr: String,
         rcvrDetailAddr: String,
-        gdsNm: String,
-        gdsQty: String = "",
-        gdsAmt: String = ""
+        goods: List<GoodsItem>
     ): DeliveryBookingResponse {
         logger.info("택배예약접수 서비스 시작 - 운송장번호: $invcNo, 고객사용번호: $custUseNo")
 
@@ -47,11 +46,14 @@ class CjBookingService(
         val today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"))
         val mpckKey = "${today}_${cjConfig.custId}_${custUseNo}"
 
-        val goodsItem = BookingGoodsItem(
-            gdsNm = gdsNm,
-            gdsQty = gdsQty,
-            gdsAmt = gdsAmt
-        )
+        val goodsItems = goods.mapIndexed { index, item ->
+            BookingGoodsItem(
+                mpckSeq = (index + 1).toString(),
+                gdsNm = item.productType,
+                gdsQty = item.qty,
+                gdsAmt = item.amount
+            )
+        }
 
         val request = DeliveryBookingRequest(
             tokenNum = tokenNum,
@@ -75,7 +77,7 @@ class CjBookingService(
             rcvrZipNo = rcvrZipNo,
             rcvrAddr = rcvrAddr,
             rcvrDetailAddr = rcvrDetailAddr,
-            array = listOf(goodsItem)
+            array = goodsItems
         )
 
         val response = cjApiClient.requestBooking(tokenNum, request)

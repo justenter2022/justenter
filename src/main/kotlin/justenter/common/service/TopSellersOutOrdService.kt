@@ -6,6 +6,7 @@ import justenter.cjdeliveryapi.service.CjInvoiceService
 import justenter.common.dto.BarcodeScanErrorType
 import justenter.common.dto.BarcodeScanResult
 import justenter.common.dto.ExcelUploadResult
+import justenter.common.dto.GoodsItem
 import justenter.common.entity.Brand
 import justenter.common.entity.TopSellersOutOrd
 import justenter.common.repository.BrandRepository
@@ -47,12 +48,44 @@ class TopSellersOutOrdService(
         val sheet = workbook.getSheetAt(0)
 
         val orders = mutableListOf<TopSellersOutOrd>()
+        val validationErrors = mutableListOf<String>()
+
+        // 엑셀의 모든 no를 먼저 수집하여 이미 DB에 존재하는 no는 제외
+        val excelNos = (1..sheet.lastRowNum)
+            .mapNotNull { sheet.getRow(it) }
+            .map { getCellValue(it, 0) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        val existingNos = if (excelNos.isNotEmpty()) {
+            topSellersOutOrdRepository.findByNoIn(excelNos).mapNotNull { it.no }.toSet()
+        } else emptySet()
+
+        // 필수 입력 항목 검증 (빈칸이 있으면 결과창에 알림)
+        val requiredColumns = listOf(
+            0 to "no",
+            1 to "브랜드명",
+            2 to "아임웹 주문번호",
+            4 to "C/NAME(KOR)",
+            5 to "C/ADDRESS(KOR)",
+            6 to "C/TEL NO",
+            7 to "ZIP CODE"
+        )
+        for (rowIdx in 1..sheet.lastRowNum) {
+            val row = sheet.getRow(rowIdx) ?: continue
+            val missing = requiredColumns
+                .filter { (col, _) -> getCellValue(row, col).isBlank() }
+                .map { it.second }
+            if (missing.isNotEmpty()) {
+                validationErrors.add("${rowIdx + 1}행: ${missing.joinToString(", ")} 없음")
+            }
+        }
 
         // A~N열, 1행 헤더, 2행부터 데이터
         for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
             val no = getCellValue(row, 0)
             if (no.isBlank()) continue
+            if (no in existingNos) continue
 
             val brandName = getCellValue(row, 1)  // B: BRAND
             val brand = if (brandName.isNotBlank()) {
@@ -111,7 +144,10 @@ class TopSellersOutOrdService(
         val remainingBundleItems = remainingBundleMap.filter { it.value.size > 1 }.values.sumOf { it.size }
 
         return ExcelUploadResult(
+            totalCount = excelNos.size,
             savedCount = orders.size,
+            skippedCount = existingNos.size,
+            validationErrors = validationErrors,
             todayBundleGroups = todayBundleGroups,
             todayBundleItems = todayBundleItems,
             remainingBundleGroups = remainingBundleGroups,
@@ -254,10 +290,15 @@ class TopSellersOutOrdService(
         val invoiceNo = invoiceResponse.data.invcNo
 
         // 3. 합포장 상품 정보 합산
-        val totalQty = bundleOrders.sumOf { it.qty ?: 1 }
-        val productInfoList = bundleOrders.mapNotNull { it.productType }.distinct()
-        val productInfo = productInfoList.joinToString(", ")
-        val totalAmount = bundleOrders.sumOf { it.price?.toInt() ?: 0 }
+        val goodsItems = bundleOrders
+            .groupBy { it.productType ?: "" }
+            .map { (productType, group) ->
+                GoodsItem(
+                    productType = productType,
+                    qty = group.sumOf { it.qty ?: 1 }.toString(),
+                    amount = group.sumOf { it.price?.toInt() ?: 0 }.toString()
+                )
+            }
 
         // 4. 라벨 이미지 생성 및 저장
         val labelImagePath: String
@@ -277,8 +318,7 @@ class TopSellersOutOrdService(
                 receiverName = receiverName,
                 receiverAddr1 = receiverAddr1,
                 receiverAddr2 = "",
-                productInfo = productInfo,
-                productQty = totalQty.toString()
+                products = goodsItems
             )
 
             labelImagePath = saveLabelImage(invoiceNo, imageBytes)
@@ -300,7 +340,7 @@ class TopSellersOutOrdService(
             val (rcvrAddr, rcvrDetailAddr) = splitAddress(fullRcvrAddr)
 
             val custUseNo = if (bundleOrders.size > 1) {
-                bundleOrders.mapNotNull { it.imwebOrderNo }.joinToString("_") + "_C"
+                (bundleOrders.firstOrNull()?.imwebOrderNo ?: "") + "_C"
             } else {
                 representativeOrder.imwebOrderNo ?: representativeOrder.no ?: barcodeValue
             }
@@ -322,9 +362,7 @@ class TopSellersOutOrdService(
                 rcvrZipNo = representativeOrder.zipCode ?: "",
                 rcvrAddr = rcvrAddr,
                 rcvrDetailAddr = rcvrDetailAddr,
-                gdsNm = productInfo.ifBlank { "상품" },
-                gdsQty = totalQty.toString(),
-                gdsAmt = totalAmount.toString()
+                goods = goodsItems
             )
 
             if (bookingResponse.resultCd != "S") {

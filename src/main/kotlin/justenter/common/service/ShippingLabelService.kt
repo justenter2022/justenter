@@ -2,6 +2,7 @@
 package justenter.common.service
 
 import justenter.cjdeliveryapi.dto.response.AddressRefineData
+import justenter.common.dto.GoodsItem
 import justenter.common.enum.Code128Type
 import net.sourceforge.barbecue.Barcode
 import net.sourceforge.barbecue.BarcodeFactory
@@ -47,8 +48,7 @@ class ShippingLabelService {
         receiverName: String = "홍*동  010-1234-**** / 010-1234-****",
         receiverAddr1: String = "서울 중구 세종대로9길 53 [서소문동 58-12] 홍길동아파트 101동",
         receiverAddr2: String = "201호",
-        productInfo: String = "테스트 TEST 상품 정보 ABCDEFG0000 컬러(COLOR) : 12345BK_블랙",
-        productQty: String = "1"
+        products: List<GoodsItem> = listOf(GoodsItem("테스트 TEST 상품 정보 ABCDEFG0000 컬러(COLOR) : 12345BK_블랙", "1", "0"))
     ): ByteArray {
         // 동적 데이터 추출
         val clsfcd = addressData.clsfcd ?: ""
@@ -148,8 +148,12 @@ class ShippingLabelService {
 
             // [5] 상품정보 영역
             g2d.font = font11
-            g2d.drawString(productInfo, 14, 208)
-            g2d.drawString(productQty, 460, 208)
+            var productY = 208
+            for (item in products) {
+                g2d.drawString(item.productType, 14, productY)
+                g2d.drawString(item.qty, 460, productY)
+                productY += 20
+            }
 
             // [6] 배송메시지
             g2d.font = font10
