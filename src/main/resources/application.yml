@@ -2,7 +2,7 @@ spring:
   application:
     name: cj-delivery-api
   profiles:
-    active: local
+    active: liv
   thymeleaf:
     prefix: classpath:/templates/
     suffix: .html
