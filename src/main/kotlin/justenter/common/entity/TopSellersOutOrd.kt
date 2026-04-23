@@ -23,6 +23,9 @@ class TopSellersOutOrd(
     @Column(name = "invoice_no", length = 100)
     var invoiceNo: String? = null,
 
+    @Column(name = "invoice_issued_at")
+    var invoiceIssuedAt: LocalDateTime? = null,
+
     @Column(name = "cust_nm", length = 255)
     var custNm: String? = null,
 

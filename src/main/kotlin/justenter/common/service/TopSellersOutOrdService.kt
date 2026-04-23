@@ -14,15 +14,20 @@ import justenter.common.repository.TopSellersOutOrdRepository
 import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.ss.usermodel.WorkbookFactory
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.io.ResourceLoader
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
+import java.io.ByteArrayOutputStream
 import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 @Service
@@ -33,6 +38,7 @@ class TopSellersOutOrdService(
     private val cjInvoiceService: CjInvoiceService,
     private val cjBookingService: CjBookingService,
     private val shippingLabelService: ShippingLabelService,
+    private val resourceLoader: ResourceLoader,
     @Value("\${app.invoice.base-path:./invoice}") private val invoiceBasePath: String,
     @Value("\${app.sender.name:}") private val senderName: String,
     @Value("\${app.sender.tel:}") private val senderTel: String,
@@ -383,8 +389,10 @@ class TopSellersOutOrdService(
         }
 
         // 6. 성공 - 그룹 내 모든 건에 운송장번호 업데이트
+        val issuedAt = LocalDateTime.now()
         for (bundleOrder in bundleOrders) {
             bundleOrder.invoiceNo = invoiceNo
+            bundleOrder.invoiceIssuedAt = issuedAt
         }
         topSellersOutOrdRepository.saveAll(bundleOrders)
 
@@ -444,6 +452,56 @@ class TopSellersOutOrdService(
 
         logger.info("피드백 엑셀 생성 완료: $filePath (${unprocessed.size}건)")
         return filePath.toString()
+    }
+
+    /**
+     * 아임웹 송장일괄등록 양식 엑셀 생성
+     * 템플릿의 1,2행(헤더/설명)은 그대로 유지하고 3행부터 해당 날짜의 송장발급 데이터를 채움
+     */
+    fun generateImwebInvoiceExcel(date: LocalDate): Pair<String, ByteArray> {
+        val start = LocalDateTime.of(date, LocalTime.MIN)
+        val end = LocalDateTime.of(date, LocalTime.MAX)
+        val orders = topSellersOutOrdRepository.findIssuedBetween(start, end)
+
+        val templateResource = resourceLoader.getResource("classpath:templates/5 아임웹송장일괄등록 양식.xlsx")
+        val workbook = templateResource.inputStream.use { XSSFWorkbook(it) }
+        val sheet = workbook.getSheetAt(0)
+
+        // 3행(index 2)의 스타일을 샘플로 캡처 후 기존 데이터 행 제거
+        val styleRow = sheet.getRow(2)
+        val sampleStyles = (0..5).map { styleRow?.getCell(it)?.cellStyle }
+        val lastRow = sheet.lastRowNum
+        for (i in lastRow downTo 2) {
+            sheet.getRow(i)?.let { sheet.removeRow(it) }
+        }
+
+        // 3행(index 2)부터 데이터 기록
+        for ((idx, order) in orders.withIndex()) {
+            val row = sheet.createRow(2 + idx)
+            listOf(
+                0 to (order.imwebOrderNo ?: ""),   // A: 주문섹션번호
+                1 to "",                            // B: 주문섹션품목번호
+                2 to "",                            // C: 수량
+                3 to "CJ대한통운",                   // D: 택배사
+                4 to (order.invoiceNo ?: ""),       // E: 송장번호
+                5 to "배송중"                        // F: 주문 상태 변경
+            ).forEach { (col, value) ->
+                val cell = row.createCell(col)
+                cell.setCellValue(value)
+                sampleStyles[col]?.let { cell.cellStyle = it }
+            }
+        }
+
+        val bytes = ByteArrayOutputStream().use { baos ->
+            workbook.write(baos)
+            baos.toByteArray()
+        }
+        workbook.close()
+
+        val dateStr = date.format(DateTimeFormatter.ofPattern("yyyyMMdd"))
+        val fileName = "아임웹송장일괄등록_${dateStr}.xlsx"
+        logger.info("아임웹 송장 엑셀 생성 완료: $fileName (${orders.size}건)")
+        return fileName to bytes
     }
 
     /**

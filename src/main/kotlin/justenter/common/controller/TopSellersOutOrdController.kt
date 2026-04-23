@@ -6,14 +6,19 @@ import justenter.cjdeliveryapi.dto.response.ApiResponse
 import justenter.common.dto.BarcodeScanResult
 import justenter.common.service.TopSellersOutOrdService
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.core.io.FileSystemResource
+import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
+import java.time.LocalDate
 
 @Controller
 class MainViewController {
@@ -97,6 +102,24 @@ class TopSellersOutOrdController(
             message = result.message,
             data = result
         )
+    }
+
+    @Operation(summary = "아임웹 송장일괄등록 양식 다운로드", description = "지정된 날짜(기본 당일)에 송장 발급된 데이터를 아임웹 송장일괄등록 양식으로 다운로드합니다.")
+    @GetMapping("/imweb-invoice-download")
+    fun downloadImwebInvoiceExcel(
+        @RequestParam(required = false)
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+        date: LocalDate?
+    ): ResponseEntity<ByteArrayResource> {
+        val targetDate = date ?: LocalDate.now()
+        val (fileName, bytes) = topSellersOutOrdService.generateImwebInvoiceExcel(targetDate)
+
+        val encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20")
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"$encodedFileName\"; filename*=UTF-8''$encodedFileName")
+            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentLength(bytes.size.toLong())
+            .body(ByteArrayResource(bytes))
     }
 
     @Operation(summary = "완료 - 미출력 주문 피드백 엑셀 다운로드", description = "송장 미출력 주문을 엑셀 파일로 생성하여 다운로드합니다.")

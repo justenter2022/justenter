@@ -23,6 +23,11 @@
         button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
         .btn-complete { background: linear-gradient(135deg, #28a745 0%, #218838 100%); margin-top: 15px; }
         .btn-complete:hover { box-shadow: 0 10px 20px rgba(40,167,69,0.3); }
+        .btn-imweb { background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%); margin-top: 10px; }
+        .btn-imweb:hover { box-shadow: 0 10px 20px rgba(23,162,184,0.3); }
+        .imweb-row { display: flex; gap: 10px; margin-top: 15px; align-items: stretch; }
+        .imweb-row input[type="date"] { flex: 0 0 180px; padding: 15px; font-size: 16px; border: 2px solid #ddd; border-radius: 10px; }
+        .imweb-row button { flex: 1; margin: 0; }
         .result { margin-top: 30px; padding: 20px; border-radius: 10px; display: none; }
         .result.success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
         .result.error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
@@ -43,6 +48,10 @@
             <input type="text" id="barcodeInput" placeholder="바코드 스캔 또는 주문번호 입력" autocomplete="off" autofocus />
             <button id="submitBtn">처리</button>
             <button id="completeBtn" class="btn-complete">완료 (미출력 주문 다운로드)</button>
+            <div class="imweb-row">
+                <input type="date" id="imwebDate" />
+                <button id="imwebDownloadBtn" class="btn-imweb">아임웹 송장양식 다운로드</button>
+            </div>
         </div>
 
         <div class="loader" id="loader">
@@ -106,6 +115,44 @@
                 submitBtn.disabled = false;
                 barcodeInput.value = '';
                 barcodeInput.focus();
+            }
+        });
+
+        // 아임웹 송장양식 다운로드 - 기본값: 오늘 날짜
+        (function initImwebDate() {
+            const d = new Date();
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            document.getElementById('imwebDate').value = yyyy + '-' + mm + '-' + dd;
+        })();
+
+        document.getElementById('imwebDownloadBtn').addEventListener('click', async () => {
+            const dateValue = document.getElementById('imwebDate').value;
+            if (!dateValue) {
+                alert('날짜를 선택해주세요.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/v1/topsellers/imweb-invoice-download?date=' + encodeURIComponent(dateValue));
+                if (!response.ok) throw new Error('서버 오류');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename\*=UTF-8''([^;]+)/) || disposition.match(/filename="?([^";]+)"?/);
+                a.download = match ? decodeURIComponent(match[1]) : ('아임웹송장일괄등록_' + dateValue.replace(/-/g, '') + '.xlsx');
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+                showResult('success', '아임웹 송장양식 다운로드 완료 (' + dateValue + ')');
+            } catch (error) {
+                showResult('error', '다운로드 중 오류: ' + error.message);
             }
         });
 
