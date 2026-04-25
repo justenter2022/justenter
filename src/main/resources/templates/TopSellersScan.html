@@ -25,6 +25,8 @@
         .btn-complete:hover { box-shadow: 0 10px 20px rgba(40,167,69,0.3); }
         .btn-imweb { background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%); margin-top: 10px; }
         .btn-imweb:hover { box-shadow: 0 10px 20px rgba(23,162,184,0.3); }
+        .btn-close-today { background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%); margin-top: 10px; }
+        .btn-close-today:hover { box-shadow: 0 10px 20px rgba(220,53,69,0.3); }
         .imweb-row { display: flex; gap: 10px; margin-top: 15px; align-items: stretch; }
         .imweb-row input[type="date"] { flex: 0 0 180px; padding: 15px; font-size: 16px; border: 2px solid #ddd; border-radius: 10px; }
         .imweb-row button { flex: 1; margin: 0; }
@@ -48,6 +50,7 @@
             <input type="text" id="barcodeInput" placeholder="바코드 스캔 또는 주문번호 입력" autocomplete="off" autofocus />
             <button id="submitBtn">처리</button>
             <button id="completeBtn" class="btn-complete">완료 (미출력 주문 다운로드)</button>
+            <button id="closeTodayBtn" class="btn-close-today">금일마감 (완료된 합포장 순번 초기화)</button>
             <div class="imweb-row">
                 <input type="date" id="imwebDate" />
                 <button id="imwebDownloadBtn" class="btn-imweb">아임웹 송장양식 다운로드</button>
@@ -97,6 +100,9 @@
                 if (data.success && data.data && data.data.labelImagePath) {
                     // 송장 발급 완료 - 라벨 출력
                     showResult('success', '운송장 생성 완료 - 운송장번호: ' + data.data.invoiceNo);
+                    if (data.data.bundleSeq && data.data.bundleTotal && data.data.bundleTotal > 1) {
+                        alert(data.data.bundleSeq + '번째 합포장의 주문건이 출력됩니다. (총 ' + data.data.bundleTotal + '건)');
+                    }
                     var printUrl = '/topsellers/label-print-view?path=' + encodeURIComponent(data.data.labelImagePath);
                     window.open(printUrl, '_blank', 'width=800,height=600');
                 } else if (data.success && data.data && data.data.bundleComplete === false) {
@@ -176,6 +182,23 @@
                 showResult('success', '미출력 주문 엑셀 다운로드 완료');
             } catch (error) {
                 showResult('error', '완료 처리 중 오류: ' + error.message);
+            }
+        });
+
+        document.getElementById('closeTodayBtn').addEventListener('click', async () => {
+            if (!confirm('금일 발급 완료된 합포장 순번을 초기화합니다.\n(진행중/대기중 합포장은 유지됩니다)\n계속하시겠습니까?')) return;
+
+            try {
+                const response = await fetch('/api/v1/topsellers/close-today', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showResult('success', data.message);
+                } else {
+                    showResult('error', data.message || '금일마감 처리에 실패했습니다.');
+                }
+            } catch (error) {
+                showResult('error', '금일마감 처리 중 오류: ' + error.message);
             }
         });
 

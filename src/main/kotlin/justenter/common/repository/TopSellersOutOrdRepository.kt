@@ -12,8 +12,11 @@ interface TopSellersOutOrdRepository : JpaRepository<TopSellersOutOrd, Long> {
     fun findByNoIn(nos: Collection<String>): List<TopSellersOutOrd>
     fun findByBundleGroup(bundleGroup: String): List<TopSellersOutOrd>
 
-    @Query("SELECT COALESCE(MAX(t.bundleSeq), 0) FROM TopSellersOutOrd t WHERE t.scanned = true AND t.invoiceNo IS NULL")
-    fun findMaxActiveBundleSeq(): Int
+    @Query("SELECT DISTINCT t.bundleSeq FROM TopSellersOutOrd t WHERE t.bundleSeq IS NOT NULL")
+    fun findAllUsedBundleSeqs(): List<Int>
+
+    @Query("SELECT t FROM TopSellersOutOrd t WHERE t.invoiceNo IS NOT NULL AND t.bundleSeq IS NOT NULL")
+    fun findCompletedBundleOrdersWithSeq(): List<TopSellersOutOrd>
 
     fun findByInvoiceNoIsNull(): List<TopSellersOutOrd>
 

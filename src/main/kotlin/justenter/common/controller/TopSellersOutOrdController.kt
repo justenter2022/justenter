@@ -122,6 +122,18 @@ class TopSellersOutOrdController(
             .body(ByteArrayResource(bytes))
     }
 
+    @Operation(summary = "금일마감", description = "송장 발급이 완료된 합포장 순번을 해제하여 다음 업로드에서 재사용 가능하게 합니다. 진행중/대기중 묶음의 번호는 유지됩니다.")
+    @PostMapping("/close-today")
+    fun closeToday(): ApiResponse<Map<String, Any>> {
+        val released = topSellersOutOrdService.closeToday()
+        return ApiResponse(
+            success = true,
+            message = if (released > 0) "금일마감 완료: ${released}개 합포장 순번 해제"
+                      else "금일마감 완료: 해제할 합포장이 없습니다.",
+            data = mapOf("releasedCount" to released)
+        )
+    }
+
     @Operation(summary = "완료 - 미출력 주문 피드백 엑셀 다운로드", description = "송장 미출력 주문을 엑셀 파일로 생성하여 다운로드합니다.")
     @PostMapping("/complete")
     fun complete(): ResponseEntity<FileSystemResource> {

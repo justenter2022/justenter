@@ -129,6 +129,16 @@ class TopSellersOutOrdService(
             order.bundleGroup = groupId
         }
 
+        // 합포장 순번(bundleSeq) 부여: 사용 중이 아닌 가장 작은 번호부터 채움
+        // 금일마감 후 해제된 번호는 재사용하되, 진행중/대기중 묶음의 번호는 유지
+        val usedSeqs = topSellersOutOrdRepository.findAllUsedBundleSeqs().toMutableSet()
+        val newGroups = orders.groupBy { it.bundleGroup!! }
+        for ((_, groupOrders) in newGroups) {
+            val seq = nextAvailableBundleSeq(usedSeqs)
+            usedSeqs.add(seq)
+            groupOrders.forEach { it.bundleSeq = seq }
+        }
+
         workbook.close()
 
         if (orders.isNotEmpty()) {
@@ -191,26 +201,42 @@ class TopSellersOutOrdService(
             logger.warn("기존 송장번호는 있으나 이미지 없음 - 운송장번호: $existingInvoiceNo, 새로 발급합니다.")
         }
 
-        // 3. 현재 건 스캔 처리
+        // 3. 중복 스캔 방지: 이미 스캔된 주문이 다시 들어오면 처리 중단하고 남은 건 안내
+        if (order.scanned) {
+            val bundleGroup = order.bundleGroup
+            val bundleOrders = if (bundleGroup != null) {
+                topSellersOutOrdRepository.findByBundleGroup(bundleGroup)
+            } else listOf(order)
+            val unscannedNos = bundleOrders.filter { !it.scanned }.map { it.no }
+            val bundleSeq = bundleOrders.firstOrNull { it.bundleSeq != null }?.bundleSeq
+            val message = if (unscannedNos.isEmpty()) {
+                "이미 스캔된 주문입니다: #${barcodeValue}"
+            } else {
+                "이미 스캔된 주문입니다: #${barcodeValue}. 남은 스캔: ${unscannedNos.joinToString(", ")}"
+            }
+            logger.info("중복 스캔 차단 - 바코드값: $barcodeValue, 남은 건: ${unscannedNos.joinToString(", ")}")
+            return BarcodeScanResult(
+                success = true,
+                message = message,
+                bundleGroup = bundleGroup,
+                bundleTotal = bundleOrders.size,
+                bundleScanned = bundleOrders.count { it.scanned },
+                bundleComplete = false,
+                bundleSeq = bundleSeq
+            )
+        }
+
+        // 4. 현재 건 스캔 처리
         order.scanned = true
         topSellersOutOrdRepository.save(order)
 
-        // 4. 합포장 그룹 확인
+        // 5. 합포장 그룹 확인
         val bundleGroup = order.bundleGroup
         if (bundleGroup != null) {
             val bundleOrders = topSellersOutOrdRepository.findByBundleGroup(bundleGroup)
 
-            // 합포장 순번 부여: 이미 부여된 게 있으면 재사용, 없으면 새 순번
-            val existingSeq = bundleOrders.firstOrNull { it.bundleSeq != null }?.bundleSeq
-            val bundleSeq: Int
-            if (existingSeq != null) {
-                bundleSeq = existingSeq
-            } else {
-                val maxSeq = topSellersOutOrdRepository.findMaxActiveBundleSeq()
-                bundleSeq = maxSeq + 1
-                bundleOrders.forEach { it.bundleSeq = bundleSeq }
-                topSellersOutOrdRepository.saveAll(bundleOrders)
-            }
+            // bundleSeq 는 엑셀 업로드 시 부여됨. null 인 레거시 데이터만 여기서 보정.
+            val bundleSeq = ensureBundleSeq(bundleOrders)
 
             val bundleTotal = bundleOrders.size
             val bundleScanned = bundleOrders.count { it.scanned }
@@ -237,11 +263,50 @@ class TopSellersOutOrdService(
         }
 
         // 합포장 그룹이 없는 단건 - 바로 송장 발급
-        val maxSeq = topSellersOutOrdRepository.findMaxActiveBundleSeq()
-        val bundleSeq = maxSeq + 1
-        order.bundleSeq = bundleSeq
-        topSellersOutOrdRepository.save(order)
+        val bundleSeq = ensureBundleSeq(listOf(order))
         return processBundleInvoice(order, listOf(order), barcodeValue, bundleSeq)
+    }
+
+    /**
+     * 합포장 주문 목록에 bundleSeq 를 보장한다.
+     * 이미 부여돼 있으면 그대로 재사용, 없으면 사용 가능한 가장 작은 번호를 새로 부여하고 저장.
+     */
+    private fun ensureBundleSeq(bundleOrders: List<TopSellersOutOrd>): Int {
+        val existing = bundleOrders.firstOrNull { it.bundleSeq != null }?.bundleSeq
+        if (existing != null) {
+            // 동일 그룹 내 일부에만 seq 가 있을 수 있으므로 일관성 보정
+            bundleOrders.filter { it.bundleSeq == null }.forEach { it.bundleSeq = existing }
+            if (bundleOrders.any { it.bundleSeq != existing }) {
+                topSellersOutOrdRepository.saveAll(bundleOrders)
+            }
+            return existing
+        }
+        val usedSeqs = topSellersOutOrdRepository.findAllUsedBundleSeqs().toMutableSet()
+        val seq = nextAvailableBundleSeq(usedSeqs)
+        bundleOrders.forEach { it.bundleSeq = seq }
+        topSellersOutOrdRepository.saveAll(bundleOrders)
+        return seq
+    }
+
+    private fun nextAvailableBundleSeq(usedSeqs: Set<Int>): Int {
+        var candidate = 1
+        while (candidate in usedSeqs) candidate++
+        return candidate
+    }
+
+    /**
+     * 금일마감: 송장 발급이 완료된 묶음의 bundleSeq 를 해제하여 다음 업로드에서 재사용 가능하게 한다.
+     * 진행중(일부 스캔)이거나 대기중(스캔 전)인 묶음의 seq 는 유지된다.
+     */
+    @Transactional
+    fun closeToday(): Int {
+        val completed = topSellersOutOrdRepository.findCompletedBundleOrdersWithSeq()
+        if (completed.isEmpty()) return 0
+        val releasedSeqs = completed.mapNotNull { it.bundleSeq }.toSet()
+        completed.forEach { it.bundleSeq = null }
+        topSellersOutOrdRepository.saveAll(completed)
+        logger.info("금일마감: ${releasedSeqs.size}개 합포장 순번 해제 (seq: ${releasedSeqs.sorted()})")
+        return releasedSeqs.size
     }
 
     private fun processBundleInvoice(
