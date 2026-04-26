@@ -10,6 +10,7 @@ import justenter.common.dto.GoodsItem
 import justenter.common.entity.Brand
 import justenter.common.entity.TopSellersOutOrd
 import justenter.common.repository.BrandRepository
+import justenter.common.repository.ImwebOrderSectionRepository
 import justenter.common.repository.TopSellersOutOrdRepository
 import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.Row
@@ -33,6 +34,7 @@ import java.time.format.DateTimeFormatter
 @Service
 class TopSellersOutOrdService(
     private val topSellersOutOrdRepository: TopSellersOutOrdRepository,
+    private val imwebOrderSectionRepository: ImwebOrderSectionRepository,
     private val brandRepository: BrandRepository,
     private val cjAddressService: CjAddressService,
     private val cjInvoiceService: CjInvoiceService,
@@ -86,12 +88,51 @@ class TopSellersOutOrdService(
             }
         }
 
+        // hawbNo 검증 (hawb_no 는 row 유니크)
+        val hawbWarnings = mutableListOf<String>()
+        // 엑셀 row 수집: hawb → [no]
+        val excelNosByHawb = mutableMapOf<String, MutableList<String>>()
+        for (rowIdx in 1..sheet.lastRowNum) {
+            val row = sheet.getRow(rowIdx) ?: continue
+            val no = getCellValue(row, 0)
+            val hawbNo = getCellValue(row, 3)
+            if (no.isBlank() || hawbNo.isBlank()) continue
+            excelNosByHawb.getOrPut(hawbNo) { mutableListOf() }.add(no)
+        }
+        // (A) 파일 내 hawb 중복 → 경고 + 해당 hawb 의 row 전부 저장 제외
+        val duplicateHawbsInFile = excelNosByHawb.filter { it.value.size > 1 }.keys
+        for (hawb in duplicateHawbsInFile) {
+            val nos = excelNosByHawb[hawb]!!
+            hawbWarnings.add(
+                "엑셀업로드 파일에 T송장: ${hawb} 이 여러 row (no: ${nos.joinToString(", ")}) 에 존재합니다. 파일을 확인 후 다시 업로드해주세요"
+            )
+        }
+        // (B) DB vs 파일: 파일의 hawbNo 가 DB 에 이미 다른 `no` 로 등록됨
+        val dbOrdersByHawb = if (excelNosByHawb.isNotEmpty()) {
+            topSellersOutOrdRepository.findByHawbNoIn(excelNosByHawb.keys)
+                .associateBy { it.hawbNo ?: "" }
+        } else emptyMap()
+        for ((hawb, excelNos) in excelNosByHawb) {
+            val dbOrder = dbOrdersByHawb[hawb] ?: continue
+            val dbNo = dbOrder.no ?: ""
+            for (excelNo in excelNos) {
+                if (excelNo != dbNo) {
+                    hawbWarnings.add(
+                        "이미 등록된 T송장: ${hawb} 이 no: ${dbNo} 으로 존재하는데, " +
+                            "엑셀업로드 파일에 no: ${excelNo} 으로 있습니다. 확인해주세요"
+                    )
+                }
+            }
+        }
+
         // A~N열, 1행 헤더, 2행부터 데이터
         for (rowIdx in 1..sheet.lastRowNum) {
             val row = sheet.getRow(rowIdx) ?: continue
             val no = getCellValue(row, 0)
             if (no.isBlank()) continue
             if (no in existingNos) continue
+            val hawbNo = getCellValue(row, 3)
+            if (hawbNo in duplicateHawbsInFile) continue
 
             val brandName = getCellValue(row, 1)  // B: BRAND
             val brand = if (brandName.isNotBlank()) {
@@ -164,6 +205,7 @@ class TopSellersOutOrdService(
             savedCount = orders.size,
             skippedCount = existingNos.size,
             validationErrors = validationErrors,
+            hawbWarnings = hawbWarnings,
             todayBundleGroups = todayBundleGroups,
             todayBundleItems = todayBundleItems,
             remainingBundleGroups = remainingBundleGroups,
@@ -519,16 +561,23 @@ class TopSellersOutOrdService(
         return filePath.toString()
     }
 
+    data class ImwebInvoiceExcelResult(
+        val fileName: String,
+        val bytes: ByteArray,
+        val warnings: List<String>,
+        val rowCount: Int
+    )
+
     /**
      * 아임웹 송장일괄등록 양식 엑셀 생성
      * 템플릿의 1,2행(헤더/설명)은 그대로 유지하고 3행부터 해당 날짜의 송장발급 데이터를 채움
      */
-    fun generateImwebInvoiceExcel(date: LocalDate): Pair<String, ByteArray> {
+    fun generateImwebInvoiceExcel(date: LocalDate): ImwebInvoiceExcelResult {
         val start = LocalDateTime.of(date, LocalTime.MIN)
         val end = LocalDateTime.of(date, LocalTime.MAX)
         val orders = topSellersOutOrdRepository.findIssuedBetween(start, end)
 
-        val templateResource = resourceLoader.getResource("classpath:templates/5 아임웹송장일괄등록 양식.xlsx")
+        val templateResource = resourceLoader.getResource("classpath:excel-templates/imweb_invoice_bulk_upload.xlsx")
         val workbook = templateResource.inputStream.use { XSSFWorkbook(it) }
         val sheet = workbook.getSheetAt(0)
 
@@ -540,11 +589,59 @@ class TopSellersOutOrdService(
             sheet.getRow(i)?.let { sheet.removeRow(it) }
         }
 
-        // 3행(index 2)부터 데이터 기록
-        for ((idx, order) in orders.withIndex()) {
-            val row = sheet.createRow(2 + idx)
+        val warnings = mutableListOf<String>()
+
+        // (imwebOrderNo, hawbNo) 기준으로 top_sellers_out_ord 내 중복 확인 (orders 범위)
+        val topSellerDuplicateKeys = orders
+            .filter { !it.imwebOrderNo.isNullOrBlank() && !it.hawbNo.isNullOrBlank() }
+            .groupBy { it.imwebOrderNo!! to it.hawbNo!! }
+            .filter { it.value.size > 1 }
+            .keys
+        for ((imwebOrderNo, hawbNo) in topSellerDuplicateKeys) {
+            warnings.add(
+                "아임웹주문번호: ${imwebOrderNo}, T송장: ${hawbNo} 이 top_seller 엑셀에 여러개가 있습니다."
+            )
+        }
+
+        // (imwebOrderNo, hawbNo) 기준으로 imweb_order_section 조회
+        val imwebOrderNos = orders.mapNotNull { it.imwebOrderNo }.filter { it.isNotBlank() }.toSet()
+        val hawbNos = orders.mapNotNull { it.hawbNo }.filter { it.isNotBlank() }.toSet()
+        val sections = if (imwebOrderNos.isNotEmpty() && hawbNos.isNotEmpty()) {
+            imwebOrderSectionRepository.findByImwebOrderNoInAndHawbNoIn(imwebOrderNos, hawbNos)
+        } else emptyList()
+        val sectionsByKey: Map<Pair<String, String>, List<String>> = sections
+            .filter { !it.imwebOrderNo.isNullOrBlank() && !it.hawbNo.isNullOrBlank() }
+            .groupBy { it.imwebOrderNo!! to it.hawbNo!! }
+            .mapValues { entry -> entry.value.map { it.imwebOrderSectionNo } }
+
+        // imweb_order_section 내에서 (imwebOrderNo, hawbNo) 가 여러개인 키 수집
+        val sectionDuplicateKeys = sectionsByKey.filter { it.value.size > 1 }.keys
+        for ((imwebOrderNo, hawbNo) in sectionDuplicateKeys) {
+            warnings.add(
+                "아임웹주문번호: ${imwebOrderNo}, T송장: ${hawbNo} 이 imweb_order_section 엑셀에 여러개가 있습니다."
+            )
+        }
+
+        // 3행(index 2)부터 데이터 기록. (imwebOrderNo, hawbNo) 가 top_seller/section 에서 중복이면 해당 건 스킵
+        var rowIdx = 2
+        var skippedNoMatch = 0
+        var skippedDuplicate = 0
+        for (order in orders) {
+            val key = (order.imwebOrderNo ?: "") to (order.hawbNo ?: "")
+            if (key in topSellerDuplicateKeys || key in sectionDuplicateKeys) {
+                skippedDuplicate++
+                continue
+            }
+            val sectionNos = sectionsByKey[key].orEmpty()
+            if (sectionNos.isEmpty()) {
+                skippedNoMatch++
+                logger.warn("아임웹 송장 양식: 매칭되는 주문섹션 없음 - imwebOrderNo=${order.imwebOrderNo}, hawbNo=${order.hawbNo}, invoiceNo=${order.invoiceNo}")
+                continue
+            }
+            val sectionNo = sectionNos.first()
+            val row = sheet.createRow(rowIdx++)
             listOf(
-                0 to (order.imwebOrderNo ?: ""),   // A: 주문섹션번호
+                0 to sectionNo,                     // A: 주문섹션번호
                 1 to "",                            // B: 주문섹션품목번호
                 2 to "",                            // C: 수량
                 3 to "CJ대한통운",                   // D: 택배사
@@ -556,6 +653,12 @@ class TopSellersOutOrdService(
                 sampleStyles[col]?.let { cell.cellStyle = it }
             }
         }
+        if (skippedNoMatch > 0) {
+            logger.warn("아임웹 송장 양식: 주문섹션 매칭 실패로 ${skippedNoMatch}건 제외됨")
+        }
+        if (skippedDuplicate > 0) {
+            logger.warn("아임웹 송장 양식: (imwebOrderNo, hawbNo) 중복으로 ${skippedDuplicate}건 제외됨")
+        }
 
         val bytes = ByteArrayOutputStream().use { baos ->
             workbook.write(baos)
@@ -565,8 +668,14 @@ class TopSellersOutOrdService(
 
         val dateStr = date.format(DateTimeFormatter.ofPattern("yyyyMMdd"))
         val fileName = "아임웹송장일괄등록_${dateStr}.xlsx"
-        logger.info("아임웹 송장 엑셀 생성 완료: $fileName (${orders.size}건)")
-        return fileName to bytes
+        val writtenRows = rowIdx - 2
+        logger.info("아임웹 송장 엑셀 생성 완료: $fileName (작성 ${writtenRows}행, 원본 주문 ${orders.size}건)")
+        return ImwebInvoiceExcelResult(
+            fileName = fileName,
+            bytes = bytes,
+            warnings = warnings,
+            rowCount = writtenRows
+        )
     }
 
     /**

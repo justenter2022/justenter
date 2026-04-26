@@ -25,7 +25,7 @@ class MainViewController {
 
     @GetMapping("/")
     fun mainPage(): String {
-        return "Main"
+        return "main"
     }
 }
 
@@ -35,17 +35,17 @@ class TopSellersOutOrdViewController {
 
     @GetMapping("/upload")
     fun uploadPage(): String {
-        return "TopSellersUpload"
+        return "topsellers/upload"
     }
 
     @GetMapping("/scan")
     fun scanPage(): String {
-        return "TopSellersScan"
+        return "topsellers/scan"
     }
 
     @GetMapping("/label-print-view")
     fun labelPrintViewPage(): String {
-        return "TopSellersLabelPrintView"
+        return "topsellers/label-print-view"
     }
 }
 
@@ -81,6 +81,7 @@ class TopSellersOutOrdController(
                 "savedCount" to result.savedCount,
                 "skippedCount" to result.skippedCount,
                 "validationErrors" to result.validationErrors,
+                "hawbWarnings" to result.hawbWarnings,
                 "fileName" to originalFilename,
                 "todayBundleGroups" to result.todayBundleGroups,
                 "todayBundleItems" to result.todayBundleItems,
@@ -112,14 +113,20 @@ class TopSellersOutOrdController(
         date: LocalDate?
     ): ResponseEntity<ByteArrayResource> {
         val targetDate = date ?: LocalDate.now()
-        val (fileName, bytes) = topSellersOutOrdService.generateImwebInvoiceExcel(targetDate)
+        val excelResult = topSellersOutOrdService.generateImwebInvoiceExcel(targetDate)
 
-        val encodedFileName = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20")
+        val encodedFileName = URLEncoder.encode(excelResult.fileName, StandardCharsets.UTF_8).replace("+", "%20")
+        // 경고 메시지는 응답 헤더로 전달 (비 ASCII 이므로 URL 인코딩)
+        val warningsHeader = excelResult.warnings.joinToString("\u001E") // RS 구분자
+        val encodedWarnings = URLEncoder.encode(warningsHeader, StandardCharsets.UTF_8)
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"$encodedFileName\"; filename*=UTF-8''$encodedFileName")
+            .header("X-Hawb-Warnings", encodedWarnings)
+            .header("X-Row-Count", excelResult.rowCount.toString())
+            .header("Access-Control-Expose-Headers", "X-Hawb-Warnings, X-Row-Count, Content-Disposition")
             .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-            .contentLength(bytes.size.toLong())
-            .body(ByteArrayResource(bytes))
+            .contentLength(excelResult.bytes.size.toLong())
+            .body(ByteArrayResource(excelResult.bytes))
     }
 
     @Operation(summary = "금일마감", description = "송장 발급이 완료된 합포장 순번을 해제하여 다음 업로드에서 재사용 가능하게 합니다. 진행중/대기중 묶음의 번호는 유지됩니다.")

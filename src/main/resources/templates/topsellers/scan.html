@@ -144,6 +144,12 @@
                 const response = await fetch('/api/v1/topsellers/imweb-invoice-download?date=' + encodeURIComponent(dateValue));
                 if (!response.ok) throw new Error('서버 오류');
 
+                const warningsRaw = response.headers.get('X-Hawb-Warnings') || '';
+                const rowCount = response.headers.get('X-Row-Count') || '';
+                const warnings = warningsRaw
+                    ? decodeURIComponent(warningsRaw).split('\u001E').filter(function(s){ return s.length > 0; })
+                    : [];
+
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -156,7 +162,14 @@
                 a.remove();
                 window.URL.revokeObjectURL(url);
 
-                showResult('success', '아임웹 송장양식 다운로드 완료 (' + dateValue + ')');
+                var msg = '아임웹 송장양식 다운로드 완료 (' + dateValue + ', ' + rowCount + '행)';
+                if (warnings.length > 0) {
+                    msg += '<br><br><b>경고</b>';
+                    for (var i = 0; i < warnings.length; i++) {
+                        msg += '<br>- ' + warnings[i];
+                    }
+                }
+                showResult('success', msg);
             } catch (error) {
                 showResult('error', '다운로드 중 오류: ' + error.message);
             }

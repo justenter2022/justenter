@@ -5,6 +5,7 @@ data class ExcelUploadResult(
     val savedCount: Int,
     val skippedCount: Int,
     val validationErrors: List<String>,
+    val hawbWarnings: List<String>,
     val todayBundleGroups: Int,
     val todayBundleItems: Int,
     val remainingBundleGroups: Int,

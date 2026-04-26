@@ -213,7 +213,7 @@ class ShippingLabelService {
      */
     private fun loadAndResizeTemplate(): BufferedImage {
         val originalImage = try {
-            val resource = ClassPathResource("templates/cj_shipping_label.png")
+            val resource = ClassPathResource("images/cj_shipping_label.png")
             ImageIO.read(resource.inputStream)
         } catch (e: Exception) {
             throw IllegalStateException("템플릿 이미지를 로드할 수 없습니다: ${e.message}", e)

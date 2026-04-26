@@ -107,6 +107,12 @@
                             msg += '<br>- ' + d.validationErrors[i];
                         }
                     }
+                    if (d.hawbWarnings && d.hawbWarnings.length > 0) {
+                        msg += '<br><br><b>T송장 경고</b>';
+                        for (var i = 0; i < d.hawbWarnings.length; i++) {
+                            msg += '<br>- ' + d.hawbWarnings[i];
+                        }
+                    }
                     if (d.todayBundleGroups > 0 || d.remainingBundleGroups > 0) {
                         msg += '<br><br><b>합포장 현황</b>';
                         msg += '<br>- 금일 업로드: 합포장 ' + d.todayBundleGroups + '건 (' + d.todayBundleItems + '개 주문)';

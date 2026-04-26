@@ -33,17 +33,17 @@ class CjDeliveryViewController {
 
     @GetMapping("/scan")
     fun scanPage(): String {
-        return "BarcodeScanner"
+        return "cj/barcode-scanner"
     }
 
     @GetMapping("/labels/print")
     fun labelPrintPage(): String {
-        return "LabelPrint"
+        return "cj/label-print"
     }
 
     @GetMapping("/labels/print-view")
     fun labelPrintViewPage(): String {
-        return "LabelPrintView"
+        return "cj/label-print-view"
     }
 }
 

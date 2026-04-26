@@ -10,6 +10,7 @@ import java.time.LocalDateTime
 interface TopSellersOutOrdRepository : JpaRepository<TopSellersOutOrd, Long> {
     fun findByNo(no: String): TopSellersOutOrd?
     fun findByNoIn(nos: Collection<String>): List<TopSellersOutOrd>
+    fun findByHawbNoIn(hawbNos: Collection<String>): List<TopSellersOutOrd>
     fun findByBundleGroup(bundleGroup: String): List<TopSellersOutOrd>
 
     @Query("SELECT DISTINCT t.bundleSeq FROM TopSellersOutOrd t WHERE t.bundleSeq IS NOT NULL")
