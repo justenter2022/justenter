@@ -16,6 +16,9 @@ class ImwebOrderSection(
     @Column(name = "hawb_no", length = 100)
     var hawbNo: String? = null,
 
+    @Column(name = "invoice_no", length = 100)
+    var invoiceNo: String? = null,
+
     @Column(name = "created_id", length = 30)
     var createdId: String? = null,
 

@@ -52,7 +52,7 @@ data class DeliveryBookingRequest(
     // ==================== 박스 ====================
 
     @get:JsonProperty("BOX_TYPE_CD")
-    val boxTypeCd: String = "03",
+    val boxTypeCd: String = "01",
 
     @get:JsonProperty("BOX_QTY")
     val boxQty: String = "1",

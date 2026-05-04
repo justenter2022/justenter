@@ -49,10 +49,11 @@ class ImwebOrderSectionController(
 
         return ApiResponse(
             success = true,
-            message = "엑셀 업로드 완료: ${result.savedCount}건 저장",
+            message = "엑셀 업로드 완료: 신규 ${result.savedCount}건, 갱신 ${result.updatedCount}건",
             data = mapOf(
                 "totalCount" to result.totalCount,
                 "savedCount" to result.savedCount,
+                "updatedCount" to result.updatedCount,
                 "skippedCount" to result.skippedCount,
                 "validationErrors" to result.validationErrors,
                 "hawbWarnings" to result.hawbWarnings,

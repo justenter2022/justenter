@@ -69,9 +69,18 @@ class TopSellersOutOrd(
     @Column(name = "bundle_seq")
     var bundleSeq: Int? = null,
 
+    @Column(name = "wrk_stat", nullable = false, columnDefinition = "INT NOT NULL DEFAULT 20")
+    var wrkStat: Int = WRK_STAT_COLLECTED,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: LocalDateTime = LocalDateTime.now(),
 
     @Column(name = "updated_at")
     var updatedAt: LocalDateTime = LocalDateTime.now()
-)
+) {
+    companion object {
+        const val WRK_STAT_COLLECTED = 20
+        const val WRK_STAT_INVOICE_ISSUED = 30
+        const val WRK_STAT_INVOICE_SENT = 31
+    }
+}

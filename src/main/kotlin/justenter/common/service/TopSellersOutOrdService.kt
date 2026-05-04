@@ -357,6 +357,18 @@ class TopSellersOutOrdService(
         barcodeValue: String,
         bundleSeq: Int
     ): BarcodeScanResult {
+        // 0. wrk_stat 검증: 묶음 내 모든 건이 20(주문수집) 상태여야 함
+        val invalidStatOrders = bundleOrders.filter { it.wrkStat != TopSellersOutOrd.WRK_STAT_COLLECTED }
+        if (invalidStatOrders.isNotEmpty()) {
+            val invalidInfo = invalidStatOrders.joinToString(", ") { "#${it.no}(wrk_stat=${it.wrkStat})" }
+            logger.warn("송장 발급 불가 - wrk_stat 20(주문수집) 이 아닌 건: $invalidInfo")
+            return BarcodeScanResult(
+                success = false,
+                errorType = BarcodeScanErrorType.INVOICE_FAILED,
+                message = "송장 발급 불가: 주문수집(20) 상태가 아닌 건이 있습니다 - $invalidInfo"
+            )
+        }
+
         // 1. 주소정제 API 호출
         val address = representativeOrder.custAddress ?: ""
         val addressResponse = try {
@@ -495,11 +507,12 @@ class TopSellersOutOrdService(
             )
         }
 
-        // 6. 성공 - 그룹 내 모든 건에 운송장번호 업데이트
+        // 6. 성공 - 그룹 내 모든 건에 운송장번호 업데이트 및 wrk_stat 20 → 30 전환
         val issuedAt = LocalDateTime.now()
         for (bundleOrder in bundleOrders) {
             bundleOrder.invoiceNo = invoiceNo
             bundleOrder.invoiceIssuedAt = issuedAt
+            bundleOrder.wrkStat = TopSellersOutOrd.WRK_STAT_INVOICE_ISSUED
         }
         topSellersOutOrdRepository.saveAll(bundleOrders)
 
@@ -603,11 +616,11 @@ class TopSellersOutOrdService(
             )
         }
 
-        // (imwebOrderNo, hawbNo) 기준으로 imweb_order_section 조회
+        // (imwebOrderNo, hawbNo) 기준으로 imweb_order_section 조회 (invoice_no 가 아직 없는 건만)
         val imwebOrderNos = orders.mapNotNull { it.imwebOrderNo }.filter { it.isNotBlank() }.toSet()
         val hawbNos = orders.mapNotNull { it.hawbNo }.filter { it.isNotBlank() }.toSet()
         val sections = if (imwebOrderNos.isNotEmpty() && hawbNos.isNotEmpty()) {
-            imwebOrderSectionRepository.findByImwebOrderNoInAndHawbNoIn(imwebOrderNos, hawbNos)
+            imwebOrderSectionRepository.findUnInvoicedByImwebOrderNoInAndHawbNoIn(imwebOrderNos, hawbNos)
         } else emptyList()
         val sectionsByKey: Map<Pair<String, String>, List<String>> = sections
             .filter { !it.imwebOrderNo.isNullOrBlank() && !it.hawbNo.isNullOrBlank() }
