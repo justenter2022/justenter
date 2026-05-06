@@ -30,6 +30,8 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 @Service
 class TopSellersOutOrdService(
@@ -578,18 +580,71 @@ class TopSellersOutOrdService(
         val fileName: String,
         val bytes: ByteArray,
         val warnings: List<String>,
-        val rowCount: Int
+        val rowCount: Int,
+        val contentType: String
     )
+
+    companion object {
+        private const val XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        private const val ZIP_CONTENT_TYPE = "application/zip"
+    }
+
+    fun listBrands(): List<Brand> {
+        return brandRepository.findAll().sortedBy { it.name }
+    }
 
     /**
      * 아임웹 송장일괄등록 양식 엑셀 생성
-     * 템플릿의 1,2행(헤더/설명)은 그대로 유지하고 3행부터 해당 날짜의 송장발급 데이터를 채움
+     * brandId 가 null 이면 해당 날짜의 모든 브랜드 주문을 브랜드별 xlsx 로 만들어 ZIP 으로 묶어 반환한다.
+     * brandId 가 지정되면 해당 브랜드 주문만 단일 xlsx 로 반환한다.
      */
-    fun generateImwebInvoiceExcel(date: LocalDate): ImwebInvoiceExcelResult {
+    fun generateImwebInvoiceExcel(date: LocalDate, brandId: Long?): ImwebInvoiceExcelResult {
         val start = LocalDateTime.of(date, LocalTime.MIN)
         val end = LocalDateTime.of(date, LocalTime.MAX)
-        val orders = topSellersOutOrdRepository.findIssuedBetween(start, end)
+        val dateStr = date.format(DateTimeFormatter.ofPattern("yyyyMMdd"))
 
+        if (brandId != null) {
+            val brandName = brandRepository.findById(brandId).orElse(null)?.name ?: "브랜드${brandId}"
+            val orders = topSellersOutOrdRepository.findIssuedBetweenByBrand(start, end, brandId)
+            val (bytes, warnings, rowCount) = buildImwebInvoiceExcelBytes(orders)
+            val fileName = "아임웹송장일괄등록_${sanitizeFileName(brandName)}_${dateStr}.xlsx"
+            logger.info("아임웹 송장 엑셀 생성 완료(단일): $fileName (작성 ${rowCount}행, 원본 ${orders.size}건)")
+            return ImwebInvoiceExcelResult(fileName, bytes, warnings, rowCount, XLSX_CONTENT_TYPE)
+        }
+
+        // 전체: 브랜드별로 나눠 ZIP 으로 묶음
+        val orders = topSellersOutOrdRepository.findIssuedBetween(start, end)
+        val ordersByBrand = orders.groupBy { it.brand }
+        val allWarnings = mutableListOf<String>()
+        var totalRows = 0
+
+        val zipBytes = ByteArrayOutputStream().use { baos ->
+            ZipOutputStream(baos).use { zos ->
+                for ((brand, brandOrders) in ordersByBrand) {
+                    val brandName = brand?.name?.ifBlank { null } ?: "브랜드없음"
+                    val (xlsxBytes, warnings, rowCount) = buildImwebInvoiceExcelBytes(brandOrders)
+                    val entryName = "아임웹송장일괄등록_${sanitizeFileName(brandName)}_${dateStr}.xlsx"
+                    zos.putNextEntry(ZipEntry(entryName))
+                    zos.write(xlsxBytes)
+                    zos.closeEntry()
+                    allWarnings.addAll(warnings.map { "[$brandName] $it" })
+                    totalRows += rowCount
+                }
+            }
+            baos.toByteArray()
+        }
+
+        val fileName = "아임웹송장일괄등록_전체_${dateStr}.zip"
+        logger.info("아임웹 송장 엑셀 생성 완료(전체): $fileName (브랜드 ${ordersByBrand.size}개, 작성 ${totalRows}행)")
+        return ImwebInvoiceExcelResult(fileName, zipBytes, allWarnings, totalRows, ZIP_CONTENT_TYPE)
+    }
+
+    /**
+     * 주어진 주문 리스트로 아임웹 송장 양식 xlsx 바이트 생성
+     */
+    private data class XlsxBuildResult(val bytes: ByteArray, val warnings: List<String>, val rowCount: Int)
+
+    private fun buildImwebInvoiceExcelBytes(orders: List<TopSellersOutOrd>): XlsxBuildResult {
         val templateResource = resourceLoader.getResource("classpath:excel-templates/imweb_invoice_bulk_upload.xlsx")
         val workbook = templateResource.inputStream.use { XSSFWorkbook(it) }
         val sheet = workbook.getSheetAt(0)
@@ -679,16 +734,11 @@ class TopSellersOutOrdService(
         }
         workbook.close()
 
-        val dateStr = date.format(DateTimeFormatter.ofPattern("yyyyMMdd"))
-        val fileName = "아임웹송장일괄등록_${dateStr}.xlsx"
-        val writtenRows = rowIdx - 2
-        logger.info("아임웹 송장 엑셀 생성 완료: $fileName (작성 ${writtenRows}행, 원본 주문 ${orders.size}건)")
-        return ImwebInvoiceExcelResult(
-            fileName = fileName,
-            bytes = bytes,
-            warnings = warnings,
-            rowCount = writtenRows
-        )
+        return XlsxBuildResult(bytes, warnings, rowIdx - 2)
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        return name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
     }
 
     /**

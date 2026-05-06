@@ -23,4 +23,7 @@ interface TopSellersOutOrdRepository : JpaRepository<TopSellersOutOrd, Long> {
 
     @Query("SELECT t FROM TopSellersOutOrd t WHERE t.invoiceNo IS NOT NULL AND t.invoiceIssuedAt BETWEEN :start AND :end ORDER BY t.invoiceIssuedAt ASC, t.id ASC")
     fun findIssuedBetween(start: LocalDateTime, end: LocalDateTime): List<TopSellersOutOrd>
+
+    @Query("SELECT t FROM TopSellersOutOrd t WHERE t.invoiceNo IS NOT NULL AND t.invoiceIssuedAt BETWEEN :start AND :end AND t.brand.id = :brandId ORDER BY t.invoiceIssuedAt ASC, t.id ASC")
+    fun findIssuedBetweenByBrand(start: LocalDateTime, end: LocalDateTime, brandId: Long): List<TopSellersOutOrd>
 }

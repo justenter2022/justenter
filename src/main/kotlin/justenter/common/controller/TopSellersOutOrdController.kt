@@ -105,15 +105,16 @@ class TopSellersOutOrdController(
         )
     }
 
-    @Operation(summary = "아임웹 송장일괄등록 양식 다운로드", description = "지정된 날짜(기본 당일)에 송장 발급된 데이터를 아임웹 송장일괄등록 양식으로 다운로드합니다.")
+    @Operation(summary = "아임웹 송장일괄등록 양식 다운로드", description = "지정된 날짜(기본 당일)에 송장 발급된 데이터를 아임웹 송장일괄등록 양식으로 다운로드합니다. brandId 가 없으면 브랜드별 xlsx 를 ZIP 으로 묶어 반환합니다.")
     @GetMapping("/imweb-invoice-download")
     fun downloadImwebInvoiceExcel(
         @RequestParam(required = false)
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-        date: LocalDate?
+        date: LocalDate?,
+        @RequestParam(required = false) brandId: Long?
     ): ResponseEntity<ByteArrayResource> {
         val targetDate = date ?: LocalDate.now()
-        val excelResult = topSellersOutOrdService.generateImwebInvoiceExcel(targetDate)
+        val excelResult = topSellersOutOrdService.generateImwebInvoiceExcel(targetDate, brandId)
 
         val encodedFileName = URLEncoder.encode(excelResult.fileName, StandardCharsets.UTF_8).replace("+", "%20")
         // 경고 메시지는 응답 헤더로 전달 (비 ASCII 이므로 URL 인코딩)
@@ -124,9 +125,17 @@ class TopSellersOutOrdController(
             .header("X-Hawb-Warnings", encodedWarnings)
             .header("X-Row-Count", excelResult.rowCount.toString())
             .header("Access-Control-Expose-Headers", "X-Hawb-Warnings, X-Row-Count, Content-Disposition")
-            .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .contentType(MediaType.parseMediaType(excelResult.contentType))
             .contentLength(excelResult.bytes.size.toLong())
             .body(ByteArrayResource(excelResult.bytes))
+    }
+
+    @Operation(summary = "브랜드 목록 조회", description = "아임웹 송장양식 다운로드용 브랜드 목록을 조회합니다.")
+    @GetMapping("/brands")
+    fun listBrands(): ApiResponse<List<Map<String, Any>>> {
+        val brands = topSellersOutOrdService.listBrands()
+            .map { mapOf<String, Any>("id" to it.id, "name" to it.name) }
+        return ApiResponse(success = true, message = "브랜드 ${brands.size}건 조회", data = brands)
     }
 
     @Operation(summary = "금일마감", description = "송장 발급이 완료된 합포장 순번을 해제하여 다음 업로드에서 재사용 가능하게 합니다. 진행중/대기중 묶음의 번호는 유지됩니다.")

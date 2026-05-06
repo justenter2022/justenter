@@ -27,9 +27,10 @@
         .btn-imweb:hover { box-shadow: 0 10px 20px rgba(23,162,184,0.3); }
         .btn-close-today { background: linear-gradient(135deg, #dc3545 0%, #a71d2a 100%); margin-top: 10px; }
         .btn-close-today:hover { box-shadow: 0 10px 20px rgba(220,53,69,0.3); }
-        .imweb-row { display: flex; gap: 10px; margin-top: 15px; align-items: stretch; }
+        .imweb-row { display: flex; gap: 10px; margin-top: 15px; align-items: stretch; flex-wrap: wrap; }
         .imweb-row input[type="date"] { flex: 0 0 180px; padding: 15px; font-size: 16px; border: 2px solid #ddd; border-radius: 10px; }
-        .imweb-row button { flex: 1; margin: 0; }
+        .imweb-row select { flex: 1 1 180px; padding: 15px; font-size: 16px; border: 2px solid #ddd; border-radius: 10px; background: white; }
+        .imweb-row button { flex: 1 1 100%; margin: 0; }
         .result { margin-top: 30px; padding: 20px; border-radius: 10px; display: none; }
         .result.success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
         .result.error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
@@ -53,6 +54,9 @@
             <button id="closeTodayBtn" class="btn-close-today">금일마감 (완료된 합포장 순번 초기화)</button>
             <div class="imweb-row">
                 <input type="date" id="imwebDate" />
+                <select id="imwebBrand">
+                    <option value="">전체</option>
+                </select>
                 <button id="imwebDownloadBtn" class="btn-imweb">아임웹 송장양식 다운로드</button>
             </div>
         </div>
@@ -133,15 +137,40 @@
             document.getElementById('imwebDate').value = yyyy + '-' + mm + '-' + dd;
         })();
 
+        // 브랜드 select 초기화
+        (async function loadBrands() {
+            try {
+                const response = await fetch('/api/v1/topsellers/brands');
+                const data = await response.json();
+                if (!data.success || !Array.isArray(data.data)) return;
+                const select = document.getElementById('imwebBrand');
+                for (const brand of data.data) {
+                    const opt = document.createElement('option');
+                    opt.value = brand.id;
+                    opt.textContent = brand.name;
+                    select.appendChild(opt);
+                }
+            } catch (e) {
+                console.error('브랜드 목록 로드 실패', e);
+            }
+        })();
+
         document.getElementById('imwebDownloadBtn').addEventListener('click', async () => {
             const dateValue = document.getElementById('imwebDate').value;
             if (!dateValue) {
                 alert('날짜를 선택해주세요.');
                 return;
             }
+            const brandId = document.getElementById('imwebBrand').value;
+            const brandLabel = (() => {
+                const sel = document.getElementById('imwebBrand');
+                return sel.options[sel.selectedIndex]?.textContent || '전체';
+            })();
 
             try {
-                const response = await fetch('/api/v1/topsellers/imweb-invoice-download?date=' + encodeURIComponent(dateValue));
+                let url = '/api/v1/topsellers/imweb-invoice-download?date=' + encodeURIComponent(dateValue);
+                if (brandId) url += '&brandId=' + encodeURIComponent(brandId);
+                const response = await fetch(url);
                 if (!response.ok) throw new Error('서버 오류');
 
                 const warningsRaw = response.headers.get('X-Hawb-Warnings') || '';
@@ -151,18 +180,19 @@
                     : [];
 
                 const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
+                const blobUrl = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url;
+                a.href = blobUrl;
                 const disposition = response.headers.get('Content-Disposition') || '';
                 const match = disposition.match(/filename\*=UTF-8''([^;]+)/) || disposition.match(/filename="?([^";]+)"?/);
-                a.download = match ? decodeURIComponent(match[1]) : ('아임웹송장일괄등록_' + dateValue.replace(/-/g, '') + '.xlsx');
+                const fallbackExt = brandId ? '.xlsx' : '.zip';
+                a.download = match ? decodeURIComponent(match[1]) : ('아임웹송장일괄등록_' + dateValue.replace(/-/g, '') + fallbackExt);
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
-                window.URL.revokeObjectURL(url);
+                window.URL.revokeObjectURL(blobUrl);
 
-                var msg = '아임웹 송장양식 다운로드 완료 (' + dateValue + ', ' + rowCount + '행)';
+                var msg = '아임웹 송장양식 다운로드 완료 (' + brandLabel + ', ' + dateValue + ', ' + rowCount + '행)';
                 if (warnings.length > 0) {
                     msg += '<br><br><b>경고</b>';
                     for (var i = 0; i < warnings.length; i++) {
