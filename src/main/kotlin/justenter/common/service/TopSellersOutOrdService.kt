@@ -163,13 +163,18 @@ class TopSellersOutOrdService(
         }
 
         // 합포장 그룹 부여: brand + custNm + custAddress + custTelNo 동일하면 같은 그룹
-        // 그룹ID = 첫번째 주문의 아임웹주문번호_C
-        val groupMap = mutableMapOf<String, String>()
+        // 2건 이상 묶음에만 bundleGroup/bundleSeq 를 부여. 단건은 null 유지.
+        val keyToOrders = mutableMapOf<String, MutableList<TopSellersOutOrd>>()
         for (order in orders) {
             val brandName = order.brand?.name ?: ""
             val key = "${brandName}|${order.custNm ?: ""}|${order.custAddress ?: ""}|${order.custTelNo ?: ""}"
-            val groupId = groupMap.getOrPut(key) { "${order.imwebOrderNo ?: order.no ?: ""}_C" }
-            order.bundleGroup = groupId
+            keyToOrders.getOrPut(key) { mutableListOf() }.add(order)
+        }
+        val bundleGroupsInBatch = keyToOrders.values.filter { it.size >= 2 }
+        for (groupOrders in bundleGroupsInBatch) {
+            val first = groupOrders.first()
+            val groupId = "${first.imwebOrderNo ?: first.no ?: ""}_C"
+            groupOrders.forEach { it.bundleGroup = groupId }
         }
 
         // 기존 DB 의 bundleGroup 과 충돌 방지: 동일 이름 존재하면 _2, _3 ... suffix 부여
@@ -198,11 +203,11 @@ class TopSellersOutOrdService(
             }
         }
 
-        // 합포장 순번(bundleSeq) 부여: 사용 중이 아닌 가장 작은 번호부터 채움
+        // 합포장 순번(bundleSeq) 부여: 2건 이상 묶음에만. 단건은 null 유지.
         // 금일마감 후 해제된 번호는 재사용하되, 진행중/대기중 묶음의 번호는 유지
         val usedSeqs = topSellersOutOrdRepository.findAllUsedBundleSeqs().toMutableSet()
-        val newGroups = orders.groupBy { it.bundleGroup!! }
-        for ((_, groupOrders) in newGroups) {
+        val bundledOrdersByGroup = orders.filter { it.bundleGroup != null }.groupBy { it.bundleGroup!! }
+        for ((_, groupOrders) in bundledOrdersByGroup) {
             val seq = nextAvailableBundleSeq(usedSeqs)
             usedSeqs.add(seq)
             groupOrders.forEach { it.bundleSeq = seq }
@@ -215,16 +220,16 @@ class TopSellersOutOrdService(
             logger.info("탑셀러 엑셀 업로드 완료: ${orders.size}건 저장")
         }
 
-        // 오늘 업로드한 합포장 통계
-        val todayBundleMap = orders.groupBy { it.bundleGroup }
+        // 오늘 업로드한 합포장 통계 (단건 제외)
+        val todayBundleMap = orders.filter { it.bundleGroup != null }.groupBy { it.bundleGroup!! }
         val todayBundleGroups = todayBundleMap.count { it.value.size > 1 }
         val todayBundleItems = todayBundleMap.filter { it.value.size > 1 }.values.sumOf { it.size }
 
-        // 기존 잔여 합포장 (invoiceNo 없는 것 중 오늘 업로드 제외)
+        // 기존 잔여 합포장 (invoiceNo 없는 것 중 오늘 업로드 제외, 단건 제외)
         val todayOrderIds = orders.map { it.id }.toSet()
         val remaining = topSellersOutOrdRepository.findByInvoiceNoIsNull()
-            .filter { it.id !in todayOrderIds }
-        val remainingBundleMap = remaining.groupBy { it.bundleGroup }
+            .filter { it.id !in todayOrderIds && it.bundleGroup != null }
+        val remainingBundleMap = remaining.groupBy { it.bundleGroup!! }
         val remainingBundleGroups = remainingBundleMap.count { it.value.size > 1 }
         val remainingBundleItems = remainingBundleMap.filter { it.value.size > 1 }.values.sumOf { it.size }
 
@@ -332,9 +337,8 @@ class TopSellersOutOrdService(
             return processBundleInvoice(order, bundleOrders, barcodeValue, bundleSeq)
         }
 
-        // 합포장 그룹이 없는 단건 - 바로 송장 발급
-        val bundleSeq = ensureBundleSeq(listOf(order))
-        return processBundleInvoice(order, listOf(order), barcodeValue, bundleSeq)
+        // 합포장 그룹이 없는 단건 - 바로 송장 발급 (bundleSeq 없음)
+        return processBundleInvoice(order, listOf(order), barcodeValue, null)
     }
 
     /**
@@ -383,7 +387,7 @@ class TopSellersOutOrdService(
         representativeOrder: TopSellersOutOrd,
         bundleOrders: List<TopSellersOutOrd>,
         barcodeValue: String,
-        bundleSeq: Int
+        bundleSeq: Int?
     ): BarcodeScanResult {
         // 0. wrk_stat 검증: 묶음 내 모든 건이 20(주문수집) 상태여야 함
         val invalidStatOrders = bundleOrders.filter { it.wrkStat != TopSellersOutOrd.WRK_STAT_COLLECTED }
@@ -546,9 +550,14 @@ class TopSellersOutOrdService(
 
         logger.info("바코드 스캔 처리 완료 - 바코드값: $barcodeValue, 운송장번호: $invoiceNo, 합포장: ${bundleOrders.size}건")
 
+        val successMessage = if (bundleSeq != null) {
+            "${bundleSeq}번째 합포장 완료 - 운송장 생성 및 예약접수 완료 (${bundleOrders.size}건)"
+        } else {
+            "운송장 생성 및 예약접수 완료"
+        }
         return BarcodeScanResult(
             success = true,
-            message = "${bundleSeq}번째 합포장 완료 - 운송장 생성 및 예약접수 완료 (${bundleOrders.size}건)",
+            message = successMessage,
             invoiceNo = invoiceNo,
             labelImagePath = labelImagePath,
             bundleGroup = representativeOrder.bundleGroup,
