@@ -11,7 +11,13 @@ interface TopSellersOutOrdRepository : JpaRepository<TopSellersOutOrd, Long> {
     fun findByNo(no: String): TopSellersOutOrd?
     fun findByNoIn(nos: Collection<String>): List<TopSellersOutOrd>
     fun findByHawbNoIn(hawbNos: Collection<String>): List<TopSellersOutOrd>
-    fun findByBundleGroup(bundleGroup: String): List<TopSellersOutOrd>
+
+    // 송장 발급 완료된(invoiceNo 있는) 건은 제외하여, 현재 스캔/처리 중인 묶음 멤버만 반환
+    @Query("SELECT t FROM TopSellersOutOrd t WHERE t.bundleGroup = :bundleGroup AND t.invoiceNo IS NULL")
+    fun findActiveByBundleGroup(bundleGroup: String): List<TopSellersOutOrd>
+
+    @Query("SELECT DISTINCT t.bundleGroup FROM TopSellersOutOrd t WHERE t.bundleGroup IS NOT NULL")
+    fun findAllDistinctBundleGroups(): List<String>
 
     @Query("SELECT DISTINCT t.bundleSeq FROM TopSellersOutOrd t WHERE t.bundleSeq IS NOT NULL")
     fun findAllUsedBundleSeqs(): List<Int>

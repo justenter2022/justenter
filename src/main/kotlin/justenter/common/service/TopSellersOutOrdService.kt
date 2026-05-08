@@ -172,6 +172,32 @@ class TopSellersOutOrdService(
             order.bundleGroup = groupId
         }
 
+        // 기존 DB 의 bundleGroup 과 충돌 방지: 동일 이름 존재하면 _2, _3 ... suffix 부여
+        val existingGroups = topSellersOutOrdRepository.findAllDistinctBundleGroups().toMutableSet()
+        val baseGroupIds = orders.mapNotNull { it.bundleGroup }.toSet()
+        val groupRemap = mutableMapOf<String, String>()
+        for (baseId in baseGroupIds) {
+            if (baseId !in existingGroups) {
+                existingGroups.add(baseId)
+                continue
+            }
+            var suffix = 2
+            var candidate = "${baseId}_$suffix"
+            while (candidate in existingGroups) {
+                suffix++
+                candidate = "${baseId}_$suffix"
+            }
+            groupRemap[baseId] = candidate
+            existingGroups.add(candidate)
+            logger.info("bundleGroup 충돌 회피: $baseId -> $candidate")
+        }
+        if (groupRemap.isNotEmpty()) {
+            for (order in orders) {
+                val remapped = groupRemap[order.bundleGroup]
+                if (remapped != null) order.bundleGroup = remapped
+            }
+        }
+
         // 합포장 순번(bundleSeq) 부여: 사용 중이 아닌 가장 작은 번호부터 채움
         // 금일마감 후 해제된 번호는 재사용하되, 진행중/대기중 묶음의 번호는 유지
         val usedSeqs = topSellersOutOrdRepository.findAllUsedBundleSeqs().toMutableSet()
@@ -249,7 +275,7 @@ class TopSellersOutOrdService(
         if (order.scanned) {
             val bundleGroup = order.bundleGroup
             val bundleOrders = if (bundleGroup != null) {
-                topSellersOutOrdRepository.findByBundleGroup(bundleGroup)
+                topSellersOutOrdRepository.findActiveByBundleGroup(bundleGroup)
             } else listOf(order)
             val unscannedNos = bundleOrders.filter { !it.scanned }.map { it.no }
             val bundleSeq = bundleOrders.firstOrNull { it.bundleSeq != null }?.bundleSeq
@@ -277,7 +303,7 @@ class TopSellersOutOrdService(
         // 5. 합포장 그룹 확인
         val bundleGroup = order.bundleGroup
         if (bundleGroup != null) {
-            val bundleOrders = topSellersOutOrdRepository.findByBundleGroup(bundleGroup)
+            val bundleOrders = topSellersOutOrdRepository.findActiveByBundleGroup(bundleGroup)
 
             // bundleSeq 는 엑셀 업로드 시 부여됨. null 인 레거시 데이터만 여기서 보정.
             val bundleSeq = ensureBundleSeq(bundleOrders)
@@ -597,7 +623,10 @@ class TopSellersOutOrdService(
      * 아임웹 송장일괄등록 양식 엑셀 생성
      * brandId 가 null 이면 해당 날짜의 모든 브랜드 주문을 브랜드별 xlsx 로 만들어 ZIP 으로 묶어 반환한다.
      * brandId 가 지정되면 해당 브랜드 주문만 단일 xlsx 로 반환한다.
+     * 다운로드 대상에 포함된 주문 중 wrkStat 이 30(송장발급)인 것은 31(송장발송)로 전환한다.
+     * (이미 31인 것도 다운로드 대상에는 포함시킨다.)
      */
+    @Transactional
     fun generateImwebInvoiceExcel(date: LocalDate, brandId: Long?): ImwebInvoiceExcelResult {
         val start = LocalDateTime.of(date, LocalTime.MIN)
         val end = LocalDateTime.of(date, LocalTime.MAX)
@@ -609,6 +638,7 @@ class TopSellersOutOrdService(
             val (bytes, warnings, rowCount) = buildImwebInvoiceExcelBytes(orders)
             val fileName = "아임웹송장일괄등록_${sanitizeFileName(brandName)}_${dateStr}.xlsx"
             logger.info("아임웹 송장 엑셀 생성 완료(단일): $fileName (작성 ${rowCount}행, 원본 ${orders.size}건)")
+            promoteWrkStatToSent(orders)
             return ImwebInvoiceExcelResult(fileName, bytes, warnings, rowCount, XLSX_CONTENT_TYPE)
         }
 
@@ -636,7 +666,20 @@ class TopSellersOutOrdService(
 
         val fileName = "아임웹송장일괄등록_전체_${dateStr}.zip"
         logger.info("아임웹 송장 엑셀 생성 완료(전체): $fileName (브랜드 ${ordersByBrand.size}개, 작성 ${totalRows}행)")
+        promoteWrkStatToSent(orders)
         return ImwebInvoiceExcelResult(fileName, zipBytes, allWarnings, totalRows, ZIP_CONTENT_TYPE)
+    }
+
+    /**
+     * 다운로드 대상 주문 중 wrkStat 이 30(송장발급)인 것만 31(송장발송)로 승격한다.
+     * 이미 31인 것은 그대로 둔다.
+     */
+    private fun promoteWrkStatToSent(orders: List<TopSellersOutOrd>) {
+        val toPromote = orders.filter { it.wrkStat == TopSellersOutOrd.WRK_STAT_INVOICE_ISSUED }
+        if (toPromote.isEmpty()) return
+        toPromote.forEach { it.wrkStat = TopSellersOutOrd.WRK_STAT_INVOICE_SENT }
+        topSellersOutOrdRepository.saveAll(toPromote)
+        logger.info("아임웹 송장 다운로드: wrkStat 30->31 전환 ${toPromote.size}건")
     }
 
     /**
